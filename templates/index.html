@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Symptom Checker Expert System</title>
+<style>
+  :root {
+    --bg: #eef2f4;
+    --panel: #ffffff;
+    --ink: #14262e;
+    --muted: #5a6e77;
+    --line: #cfd9de;
+    --accent: #0b6e7f;
+    --accent-ink: #ffffff;
+    --warn-bg: #fdecea;
+    --warn-ink: #8a1c12;
+    --yes: #0b6e7f;
+    --no: #6b4f9e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 1.9rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .lead { color: var(--muted); margin: 0 0 24px; max-width: 60ch; }
+  .notice {
+    background: var(--warn-bg); color: var(--warn-ink);
+    border-left: 4px solid var(--warn-ink); padding: 10px 14px;
+    border-radius: 4px; margin-bottom: 24px; font-size: .92rem;
+  }
+  form { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 12px 18px; border-bottom: 1px solid var(--line);
+  }
+  .row:last-of-type { border-bottom: 0; }
+  .row label.q { flex: 1; }
+  .choices { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .choices input { position: absolute; opacity: 0; pointer-events: none; }
+  .choices span {
+    display: block; padding: 6px 14px; font-size: .9rem; cursor: pointer;
+    color: var(--muted); background: #f6f9fa; user-select: none;
+  }
+  .choices label + label span { border-left: 1px solid var(--line); }
+  .choices input:checked + span { color: #fff; font-weight: 600; }
+  .choices input[value="yes"]:checked + span { background: var(--yes); }
+  .choices input[value="no"]:checked + span { background: var(--no); }
+  .choices input[value="unknown"]:checked + span { background: #7c8b92; }
+  .choices input:focus-visible + span { outline: 3px solid #f2b705; outline-offset: -3px; }
+  .actions { display: flex; gap: 12px; padding: 16px 18px; border-top: 1px solid var(--line); background: #f6f9fa; border-radius: 0 0 10px 10px; }
+  button {
+    font: inherit; padding: 10px 22px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 600;
+  }
+  button.secondary { background: transparent; color: var(--accent); }
+  button:focus-visible { outline: 3px solid #f2b705; outline-offset: 2px; }
+  #result { margin-top: 28px; }
+  .warning {
+    background: var(--warn-bg); color: var(--warn-ink); border-left: 4px solid var(--warn-ink);
+    padding: 12px 16px; border-radius: 4px; margin-bottom: 14px; font-weight: 600;
+  }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 8px; font-size: 1.15rem; display: flex; justify-content: space-between; gap: 12px; }
+  .bar { height: 8px; background: #e2e9ec; border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+  .bar > div { height: 100%; background: var(--accent); }
+  details { margin-top: 8px; color: var(--muted); font-size: .92rem; }
+  details summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+  details ul { margin: 8px 0 0; padding-left: 20px; }
+  .reported { color: var(--muted); font-size: .92rem; margin-bottom: 14px; }
+  @media (max-width: 560px) { .row { flex-direction: column; align-items: flex-start; } }
+  @media (prefers-reduced-motion: no-preference) { .bar > div { transition: width .5s ease; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Symptom checker</h1>
+  <p class="lead">Answer for each symptom, then see which common illness fits best: cold, flu, COVID-19, or allergy.</p>
+  <div class="notice">This is a study project, not medical advice. It cannot diagnose you. If you feel seriously unwell, contact a doctor or emergency services.</div>
+
+  <form id="form">
+    {% for key, label in symptoms.items() %}
+    <div class="row">
+      <label class="q" for="{{ key }}-yes">{{ label }}</label>
+      <div class="choices" role="radiogroup" aria-label="{{ label }}">
+        <label><input type="radio" name="{{ key }}" id="{{ key }}-yes" value="yes"><span>Yes</span></label>
+        <label><input type="radio" name="{{ key }}" value="no"><span>No</span></label>
+        <label><input type="radio" name="{{ key }}" value="unknown" checked><span>Not sure</span></label>
+      </div>
+    </div>
+    {% endfor %}
+    <div class="actions">
+      <button type="submit">Check symptoms</button>
+      <button type="reset" class="secondary" id="reset">Clear answers</button>
+    </div>
+  </form>
+
+  <section id="result" aria-live="polite"></section>
+</main>
+
+<script>
+const form = document.getElementById("form");
+const out = document.getElementById("result");
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const answers = {};
+  for (const [k, v] of new FormData(form).entries()) answers[k] = v;
+
+  let data;
+  try {
+    const res = await fetch("/api/diagnose", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({answers})
+    });
+    if (!res.ok) throw new Error("Server returned " + res.status);
+    data = await res.json();
+  } catch (err) {
+    out.innerHTML = '<div class="warning">Could not get a result: ' + esc(err.message) + '. Check that the server is running and try again.</div>';
+    return;
+  }
+  render(data);
+  out.scrollIntoView({behavior: "smooth", block: "start"});
+});
+
+document.getElementById("reset").addEventListener("click", () => { out.innerHTML = ""; });
+
+function render(d) {
+  let html = "";
+  d.warnings.forEach(w => { html += '<div class="warning">' + esc(w) + '</div>'; });
+
+  if (d.symptoms_reported.length) {
+    html += '<p class="reported">Symptoms you reported: ' + d.symptoms_reported.map(esc).join(", ") + '.</p>';
+  }
+
+  if (d.inconclusive) {
+    html += '<div class="card"><h2>No clear match</h2><p>The answers do not point strongly to any of the four illnesses. Answer more questions with Yes or No instead of Not sure, or see a doctor if you are worried.</p></div>';
+  }
+
+  d.results.forEach(r => {
+    html += '<div class="card"><h2><span>' + esc(r.name) + '</span><span>' + r.confidence + '%</span></h2>'
+      + '<div class="bar"><div style="width:' + r.confidence + '%"></div></div>'
+      + '<p>' + esc(r.advice) + '</p>'
+      + '<details><summary>Why this result</summary><ul>'
+      + r.rules.map(x => '<li>' + esc(x.reason) + ' (rule ' + esc(x.id) + ', ' + (x.cf > 0 ? '+' : '') + x.cf.toFixed(2) + ')</li>').join("")
+      + '</ul></details></div>';
+  });
+  out.innerHTML = html;
+}
+</script>
+</body>
+</html>
